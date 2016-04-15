@@ -32,7 +32,8 @@
 
     <script>
         var scale_side_panel = 4.5;
-        var scale_center_panel = 8.0;
+        var scale_center_panel = 7.0;
+
         var ws_connect = false;
         var nx_sides = 10;
         var nx_panels = nx_sides * 2 + 1;
@@ -93,23 +94,45 @@
 
         curve.getPointAt(0);
         //var composer = new THREE.EffectComposer(renderer);
-        //add_frame('textures/bus.jpg');
-
-        var quat_side_panel = new THREE.Quaternion();
-        quat_side_panel.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), Math.PI / 5 );
-
-        var quat_center_panel = new THREE.Quaternion();
-        quat_center_panel.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), 0.0 );
-
         var panels = new THREE.Object3D();
 
         for(var i=0; i < nx_panels; i++) {
             var pt = curve.getPointAt(stops[i]);
-            var tangent = curve.getTangentAt(stops[i]).normalize();
+            var panel = create_panel_colored(pt, 
+                                             compute_panel_scale(i), 
+                                             compute_panel_rotation(i));            
+            panels.add(panel);
+        }
+
+        scene.add(panels);
+        
+        //compute scale
+        function compute_panel_scale(index) {
+            if(index == nx_sides)
+                return new THREE.Vector3(scale_center_panel, scale_center_panel, 0.2);
+            else
+                return new THREE.Vector3(scale_side_panel, scale_side_panel, 0.2);
+        }
+        
+        //compute orientation
+        function compute_panel_rotation(index) {
+            var quat = new THREE.Quaternion();
+            if(index < 0 || index >= stops.length) {
+                console.log("ERROR: Invalid panel index" + index);
+                return quat;
+            }
+            
+            //if this is the center panel
+            if(index == nx_sides) {
+                quat.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), 0.0 );
+                return quat;
+            }
+            
+            var tangent = curve.getTangentAt(stops[index]).normalize();
             var axis = new THREE.Vector3();
             var up = undefined;
 
-            if(i <= nx_sides)
+            if(index <= nx_sides)
                 up = new THREE.Vector3(0, 0, -1);
             else
                 up = new THREE.Vector3(0, 0, 1);
@@ -121,88 +144,28 @@
 
             //amount of rotation needed
             var radians = Math.acos( up.dot(tangent) );
-            quat_side_panel.setFromAxisAngle( axis, radians);
-
-
-            var panel = undefined;
-
-            //current view
-            if(i < nx_sides || i > nx_sides) {
-                panel = create_panel_colored(pt, scale_side_panel, quat_side_panel);
-            }
-            else if(i == nx_sides) {
-                panel = create_panel_colored(pt, scale_center_panel, quat_center_panel);
-            }
-
-            panels.add(panel);
+            quat.setFromAxisAngle( axis, radians);
+            
+            return quat;
         }
 
-        scene.add(panels);
-
-
+        //create colored panel
         function create_panel_colored(pos, scale, quat) {
             var geometry = new THREE.PlaneGeometry(0.1, 0.1, 1);
             geometry.computeFaceNormals();
 
-            var mtrl = new THREE.MeshBasicMaterial( { color: 0xFFFFFF, side: THREE.DoubleSide });
+            //select a random color for panel
+            var cindex = getRandomInt(0, colorbrewer.Paired[7].length);
+            var color = colorbrewer.Paired[7][cindex];
+            
+            var mtrl = new THREE.MeshBasicMaterial( { color: color, side: THREE.DoubleSide });
             var panel = new THREE.Mesh(geometry, mtrl);
             panel.position.x = pos.x;
             panel.position.y = pos.y;
             panel.position.z = pos.z;
-            panel.scale.x += scale;
-            panel.scale.y += scale;
-            panel.setRotationFromQuaternion(quat);
-
-            return panel;
-        }
-
-        //create panel
-        function create_panel_textured(pos, scale, quat, frame_uri) {
-            var geometry = new THREE.PlaneGeometry(0.1, 0.1, 1);
-            geometry.computeFaceNormals();
-
-            var mtrl = undefined;
-            if(frame_uri == undefined)
-                mtrl = new THREE.MeshBasicMaterial( { color: 0xFFFFFF, side: THREE.DoubleSide });
-            else {
-                var texloader = new THREE.TextureLoader();
-                texloader.crossOrigin = '';
-
-
-                // load a resource
-                texloader.load(
-                        // resource URL
-                        frame_uri,
-                        // Function when resource is loaded
-                        function (texture) {
-                            texture.generateMipmaps = false;
-                            texture.minFilter = THREE.LinearFilter;
-                            texture.magFilter = THREE.LinearFilter;
-                            texture.wrapS = THREE.ClampToEdgeWrapping;
-                            texture.wrapT = THREE.ClampToEdgeWrapping;
-
-                            mtrl = new THREE.MeshBasicMaterial({map: texture, overdraw: true});
-                        },
-                        // Function called when download progresses
-                        function (xhr) {
-                            console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-                        },
-                        // Function called when download errors
-                        function (xhr) {
-                            console.log('An error happened');
-                        }
-                );
-
-
-            }
-
-            //var mtrl = new THREE.MeshLambertMaterial( { color: 0xFFFFFF, side: 2, shading: THREE.SmoothShading } );
-            var panel = new THREE.Mesh(geometry, mtrl);
-            panel.position.x = pos.x;
-            panel.position.y = pos.y;
-            panel.position.z = pos.z;
-            panel.scale.x += scale;
-            panel.scale.y += scale;
+            panel.scale.x = scale.x;
+            panel.scale.y = scale.y;
+            panel.scale.z = scale.z;
             panel.setRotationFromQuaternion(quat);
 
             return panel;
@@ -220,40 +183,7 @@
                 panels.remove(sel_obj);
         }
 
-        function load_frame_as_texture(frame_uri) {
-            var texloader = new THREE.TextureLoader();
-            texloader.crossOrigin = '';
-
-            var output_texture = undefined;
-
-            // load a resource
-            texloader.load(
-                    // resource URL
-                    frame_uri,
-                    // Function when resource is loaded
-                    function (texture) {
-                        texture.generateMipmaps = false;
-                        texture.minFilter = THREE.LinearFilter;
-                        texture.magFilter = THREE.LinearFilter;
-                        texture.wrapS = THREE.ClampToEdgeWrapping;
-                        texture.wrapT = THREE.ClampToEdgeWrapping;
-
-                        return texture;
-                    },
-                    // Function called when download progresses
-                    function (xhr) {
-                        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-                    },
-                    // Function called when download errors
-                    function (xhr) {
-                        console.log('An error happened');
-                    }
-            );
-
-            return undefined;
-        }
-
-
+            
         function handle_new_frame(frame_uri) {
             TWEEN.removeAll();
             var handled_on_transition_completed = false;
@@ -263,50 +193,42 @@
                 var panel = panels.children[i];
 
                 //orientation
-//                var q1 = panel.quaternion;
-//                var qm = new THREE.Quaternion();
-//                var q2 = quat_side_panel;
-//                if(i == nx_sides - 1)
-//                    q2 = quat_center_panel;
-
-                //position
-//                var p1 = panel.position;
-//                var p2 = curve.getPointAt(stops[i + 1]);
-
-                var o = {t: 0};
-                var rad90 = Math.PI * .5;
-                //new TWEEN.Tween( panel.rotation ).to( { z:  panel.rotation.z + rad90}, 1000 ).start();
-                // rotation (using slerp)
-
-
-                //orientation
                 var qm = new THREE.Quaternion();
                 var q1 = panel.quaternion;
-                var q2 = quat_side_panel;
+                var q2 = compute_panel_rotation(i + 1);
 
                 var pm = new THREE.Vector3();
                 var p1 = panel.position;
                 var p2 = curve.getPointAt(stops[i + 1]);
 
-                if(i == nx_sides - 1)
-                    q2 = quat_center_panel;
-
                 var o = {t : 0};
+                //for position
                 var tw1 = new TWEEN.Tween(panel.position);
                 tw1.to({ x: p2.x, y: p2.y, z: p2.z }, 60);
                 tw1.onComplete(handleComplete);
                 tw1.start();
+                
+                //for rotation
+                var tw2 = new TWEEN.Tween(panel.quaternion);
+                tw2.to({ x: q2.x, y: q2.y, z: q2.z, w: q2.w}, 60);
+                tw2.start();
+
+                //for scale
+                var s2 = compute_panel_scale(i + 1);
+                var tw3 = new TWEEN.Tween(panel.scale);
+                tw3.to({ x: s2.x, y: s2.y, z: s2.z}, 60);
+                tw3.start();
+
 
                 //on complete
                 function handleComplete() {
                     //Tween complete
-                    console.log("finished moving panel " + i);
+                    //console.log("finished moving panel " + i);
 
                     if((i == panels.children.length - 1) && !handled_on_transition_completed) {
 
                         handled_on_transition_completed = true;
-
-                        console.log("remove last panel and add new panel");
+                    
                         //remove last
                         remove_last();
 
@@ -338,15 +260,17 @@
 
                                     //pos
                                     var pos = curve.getPointAt(stops[0]);
+                                    var scale = compute_panel_scale(0);
 
                                     //panel
                                     var panel = new THREE.Mesh(geometry, mtrl);
                                     panel.position.x = pos.x;
                                     panel.position.y = pos.y;
                                     panel.position.z = pos.z;
-                                    panel.scale.x += scale_side_panel;
-                                    panel.scale.y += scale_side_panel;
-                                    panel.setRotationFromQuaternion(quat_side_panel);
+                                    panel.scale.x = scale.x;
+                                    panel.scale.y = scale.y;
+                                    panel.scale.z = scale.z;
+                                    panel.setRotationFromQuaternion(compute_panel_rotation(0));
 
                                     panels.children.splice(0, 0, panel);
 
