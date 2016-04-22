@@ -24,369 +24,539 @@
 
 </head>
 <body>
-    <div><span id="perf-mon"></span> </div>
-    <div class="alert alert-danger"><span id="fpga_conn_status"></span> </div>
+<div><span id="perf-mon"></span> </div>
+<div class="alert alert-danger"><span id="fpga_conn_status"></span> </div>
 
-    <a href="" id="btnNext">next</a>
-    <a href="" id="btnPrev">prev</a>
+<a href="" id="btnNext">next</a>
+<a href="" id="btnPrev">prev</a>
 
-    <script>
-        var scale_side_panel = 4.5;
-        var scale_center_panel = 7.0;
+<script>
+    var scale_side_panel = 4.5;
+    var scale_center_panel = 16.0;
 
-        var ws_connect = false;
-        var nx_sides = 10;
-        var nx_panels = nx_sides * 2 + 1;
-        var t_wait_area = 0.4;
-        var stops = new Array(nx_panels);
+    var ws_connect = true;
+    var nx_sides = 10;
+    var nx_panels = nx_sides * 2 + 1;
+    var t_wait_area = 0.3;
+    var stops = new Array(nx_panels);
+    var labels = new Array(nx_panels);
+    var fontMap = {
 
-        var anim_forward = false;
+        "helvetiker": 0,
+        "optimer": 1,
+        "gentilis": 2,
+        "droid/droid_sans": 3,
+        "droid/droid_serif": 4
 
-        var stats = new Stats();
-        stats.showPanel(0); //0: fps
-        //stats.showPanel(1); //1: ms
-        //stats.showPanel(2); //2: mb
-        //stats.showPanel(3); //3+: custom
-        document.body.appendChild(stats.dom );
+    };
+
+    var weightMap = {
+
+        "regular": 0,
+        "bold": 1
+
+    };
 
 
-        //create stops
-        for(var i=0; i < nx_panels; i++) {
-            if(i < nx_sides) {
-                stops[i] = (i / (nx_sides - 1)) * t_wait_area;
-                stops[nx_panels - i - 1] = 1.0 - stops[i];
-            }
-            else if(i == nx_sides){
-                stops[i] = 0.5;
-            }
-            //console.log("stop " + i + " = " + stops[i]);
+    var stats = new Stats();
+    stats.showPanel(0); //0: fps
+    //stats.showPanel(1); //1: ms
+    //stats.showPanel(2); //2: mb
+    //stats.showPanel(3); //3+: custom
+    document.body.appendChild(stats.dom );
+
+
+    //create stops
+    for(var i=0; i < nx_panels; i++) {
+        if(i < nx_sides) {
+            stops[i] = (i / (nx_sides - 1)) * t_wait_area;
+            stops[nx_panels - i - 1] = 1.0 - stops[i];
+        }
+        else if(i == nx_sides){
+            stops[i] = 0.5;
         }
 
+        labels[i] = "";
+    }
 
-        console.log("Window dim [" + window.innerWidth + "x" + window.innerHeight + "]");
 
-        //scene setup
-        window.addEventListener('resize', onWindowResize, false);
+    console.log("Window dim [" + window.innerWidth + "x" + window.innerHeight + "]");
 
-        var scene = new THREE.Scene();
-        var camera = new THREE.PerspectiveCamera( 60.0, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z  = 5;
+    //scene setup
+    window.addEventListener('resize', onWindowResize, false);
 
-        var renderer = new THREE.WebGLRenderer();
-        renderer.setSize( window.innerWidth, window.innerHeight );
-        document.body.appendChild( renderer.domElement );
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x000000, 250, 1400);
 
-        var curve = new THREE.CubicBezierCurve3(
-                new THREE.Vector3( -2, 0, 2 ),
-                new THREE.Vector3( -0.5, 0.5, 0 ),
-                new THREE.Vector3( 0.5, 0.5, 0 ),
-                new THREE.Vector3( 2, 0, 2 )
-        );
+    // LIGHTS
+    var dirLight = new THREE.DirectionalLight( 0xffffff, 0.125 );
+    dirLight.position.set( 0, 0, 1 ).normalize();
+    scene.add( dirLight );
 
-        var geometry = new THREE.Geometry();
-        geometry.vertices = curve.getPoints( 50 );
+    var pointLight = new THREE.PointLight( 0xffffff, 1.5 );
+    pointLight.position.set( 0, 100, 90 );
+    scene.add( pointLight );
 
-        var material = new THREE.LineBasicMaterial( { color : 0xff0000 } );
+    // font
+    font = undefined,
+    fontName = "optimer", // helvetiker, optimer, gentilis, droid sans, droid serif
+    fontWeight = "bold"; // normal bold
 
-        // Create the final Object3d to add to the scene
-        var curveObject = new THREE.Line( geometry, material );
-        scene.add(curveObject);
 
-        curve.getPointAt(0);
-        //var composer = new THREE.EffectComposer(renderer);
-        var panels = new THREE.Object3D();
 
-        for(var i=0; i < nx_panels; i++) {
-            var pt = curve.getPointAt(stops[i]);
-            var panel = create_panel_colored(pt, 
-                                             compute_panel_scale(i), 
-                                             compute_panel_rotation(i));            
-            panels.add(panel);
-        }
+    //camera
+    var camera = new THREE.PerspectiveCamera( 60.0, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z  = 5;
 
-        scene.add(panels);
-        
-        //compute scale
-        function compute_panel_scale(index) {
-            if(index == nx_sides)
-                return new THREE.Vector3(scale_center_panel, scale_center_panel, 0.2);
-            else
-                return new THREE.Vector3(scale_side_panel, scale_side_panel, 0.2);
-        }
-        
-        //compute orientation
-        function compute_panel_rotation(index) {
-            var quat = new THREE.Quaternion();
-            if(index < 0 || index >= stops.length) {
-                console.log("ERROR: Invalid panel index" + index);
-                return quat;
-            }
-            
-            //if this is the center panel
-            if(index == nx_sides) {
-                quat.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), 0.0 );
-                return quat;
-            }
-            
-            var tangent = curve.getTangentAt(stops[index]).normalize();
-            var axis = new THREE.Vector3();
-            var up = undefined;
+    //renderer
+    var renderer = new THREE.WebGLRenderer( { antialias: true } );
+    renderer.setClearColor(scene.fog.color);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    document.body.appendChild( renderer.domElement );
 
-            if(index <= nx_sides)
-                up = new THREE.Vector3(0, 0, -1);
-            else
-                up = new THREE.Vector3(0, 0, 1);
+    //add curve
+    var curve = new THREE.CubicBezierCurve3(
+        new THREE.Vector3( -2, 0, 2 ),
+        new THREE.Vector3( -0.5, 0.5, 0 ),
+        new THREE.Vector3( 0.5, 0.5, 0 ),
+        new THREE.Vector3( 2, 0, 2 )
+    );
 
-            axis.crossVectors(up, tangent).normalize();
-            if(axis.length() < 0.01) {
-                console.log("AXIS is degenerate! i = " + i);
-            }
+    var geometry = new THREE.Geometry();
+    geometry.vertices = curve.getPoints( 50 );
+    var material = new THREE.LineBasicMaterial( { color : 0xff0000, opacity: 0.2, transparent: true } );
+    var curveObject = new THREE.Line( geometry, material );
+    scene.add(curveObject);
 
-            //amount of rotation needed
-            var radians = Math.acos( up.dot(tangent) );
-            quat.setFromAxisAngle( axis, radians);
-            
+    //add bg
+    var phong_materials = new THREE.MultiMaterial( [
+        new THREE.MeshPhongMaterial( { color: 0xffffff, shading: THREE.FlatShading } ), // front
+        new THREE.MeshPhongMaterial( { color: 0xffffff, shading: THREE.SmoothShading } ) // side
+    ] );
+
+    var plane = new THREE.Mesh(
+        new THREE.PlaneBufferGeometry( 10000, 10000 ),
+        new THREE.MeshBasicMaterial( { color: 0xffffff, opacity: 0.5, transparent: true } )
+    );
+    plane.position.y = 100;
+    plane.rotation.x = 0;
+    scene.add( plane );
+
+
+    curve.getPointAt(0);
+    //var composer = new THREE.EffectComposer(renderer);
+    var panels = new THREE.Object3D();
+
+    for(var i=0; i < nx_panels; i++) {
+        var pt = curve.getPointAt(stops[i]);
+        var panel = create_panel_colored(pt,
+                compute_panel_scale(i),
+                compute_panel_rotation(i));
+        panels.add(panel);
+    }
+
+    scene.add(panels);
+
+    //compute scale
+    function compute_panel_scale(index) {
+        if(index == nx_sides)
+            return new THREE.Vector3(scale_center_panel, scale_center_panel, 0.2);
+        else
+            return new THREE.Vector3(scale_side_panel, scale_side_panel, 0.2);
+    }
+
+    //compute orientation
+    function compute_panel_rotation(index) {
+        var quat = new THREE.Quaternion();
+        if(index < 0 || index >= stops.length) {
+            console.log("ERROR: Invalid panel index" + index);
             return quat;
         }
 
-        //create colored panel
-        function create_panel_colored(pos, scale, quat) {
-            var geometry = new THREE.PlaneGeometry(0.1, 0.1, 1);
-            geometry.computeFaceNormals();
-
-            //select a random color for panel
-            var cindex = getRandomInt(0, colorbrewer.Paired[7].length);
-            var color = colorbrewer.Paired[7][cindex];
-            
-            var mtrl = new THREE.MeshBasicMaterial( { color: color, side: THREE.DoubleSide });
-            var panel = new THREE.Mesh(geometry, mtrl);
-            panel.position.x = pos.x;
-            panel.position.y = pos.y;
-            panel.position.z = pos.z;
-            panel.scale.x = scale.x;
-            panel.scale.y = scale.y;
-            panel.scale.z = scale.z;
-            panel.setRotationFromQuaternion(quat);
-
-            return panel;
+        //if this is the center panel
+        if(index == nx_sides) {
+            quat.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), 0.0 );
+            return quat;
         }
 
-        //remove last panel
-        function remove_last() {
-            if(scene.children.length == 0)
-                return;
+        var tangent = curve.getTangentAt(stops[index]).normalize();
+        var axis = new THREE.Vector3();
+        var up = undefined;
 
-            //remove last child
-            console.log("scene# " + scene.children.length + " ,panels#" + panels.children.length);
-            var sel_obj = panels.children[panels.children.length - 1];
-            if(sel_obj)
-                panels.remove(sel_obj);
+        if(index <= nx_sides)
+            up = new THREE.Vector3(0, 0, -1);
+        else
+            up = new THREE.Vector3(0, 0, 1);
+
+        axis.crossVectors(up, tangent).normalize();
+        if(axis.length() < 0.01) {
+            console.log("AXIS is degenerate! i = " + i);
         }
 
-            
-        function handle_new_frame(frame_uri) {
-            TWEEN.removeAll();
-            var handled_on_transition_completed = false;
+        //amount of rotation needed
+        var radians = Math.acos( up.dot(tangent) );
+        quat.setFromAxisAngle( axis, radians);
 
-            //var timeline = createjs.Timeline();
-            for(var i=0; i < panels.children.length-1; i++) {
-                var panel = panels.children[i];
+        return quat;
+    }
 
-                //orientation
-                var qm = new THREE.Quaternion();
-                var q1 = panel.quaternion;
-                var q2 = compute_panel_rotation(i + 1);
+    //create colored panel
+    function create_panel_colored(pos, scale, quat) {
+        var geometry = new THREE.PlaneGeometry(0.1, 0.1, 1);
+        geometry.computeFaceNormals();
 
-                var pm = new THREE.Vector3();
-                var p1 = panel.position;
-                var p2 = curve.getPointAt(stops[i + 1]);
+        //select a random color for panel
+        var cindex = getRandomInt(0, colorbrewer.Paired[7].length);
+        var color = colorbrewer.Paired[7][cindex];
 
-                var o = {t : 0};
-                //for position
-                var tw1 = new TWEEN.Tween(panel.position);
-                tw1.to({ x: p2.x, y: p2.y, z: p2.z }, 60);
-                tw1.onComplete(handleComplete);
-                tw1.start();
-                
-                //for rotation
-                var tw2 = new TWEEN.Tween(panel.quaternion);
-                tw2.to({ x: q2.x, y: q2.y, z: q2.z, w: q2.w}, 60);
-                tw2.start();
+        var mtrl = new THREE.MeshBasicMaterial( { color: color, side: THREE.DoubleSide });
+        var panel = new THREE.Mesh(geometry, mtrl);
+        panel.position.x = pos.x;
+        panel.position.y = pos.y;
+        panel.position.z = pos.z;
+        panel.scale.x = scale.x;
+        panel.scale.y = scale.y;
+        panel.scale.z = scale.z;
+        panel.setRotationFromQuaternion(quat);
 
-                //for scale
-                var s2 = compute_panel_scale(i + 1);
-                var tw3 = new TWEEN.Tween(panel.scale);
-                tw3.to({ x: s2.x, y: s2.y, z: s2.z}, 60);
-                tw3.start();
+        return panel;
+    }
 
+    //remove last panel
+    function remove_last() {
+        if(scene.children.length == 0)
+            return;
 
-                //on complete
-                function handleComplete() {
-                    //Tween complete
-                    //console.log("finished moving panel " + i);
+        //remove last child
+        console.log("scene# " + scene.children.length + " ,panels#" + panels.children.length);
+        var sel_obj = panels.children[panels.children.length - 1];
+        if(sel_obj)
+            panels.remove(sel_obj);
+    }
 
-                    if((i == panels.children.length - 1) && !handled_on_transition_completed) {
+    function createText() {
 
-                        handled_on_transition_completed = true;
-                    
-                        //remove last
-                        remove_last();
+        textGeo = new THREE.TextGeometry( "HeLLO", {
+            font: font,
 
-                        if(frame_uri == undefined)
-                            return false;
+            size: size,
+            height: height,
+            curveSegments: curveSegments,
 
-                        //load new frame
-                        //var texture = load_frame_as_texture(frame_uri);
-                        //var first = create_panel_textured(curve.getPointAt(stops[0]), scale_side_panel, quat_side_panel, frame_uri);
+            bevelThickness: bevelThickness,
+            bevelSize: bevelSize,
+            bevelEnabled: bevelEnabled,
 
-                        var texloader = new THREE.TextureLoader();
-                        texloader.crossOrigin = '';
+            material: 0,
+            extrudeMaterial: 1
 
-                        // load a resource
-                        texloader.load(
-                                // resource URL
-                                frame_uri,
-                                // Function when resource is loaded
-                                function (texture) {
-                                    texture.generateMipmaps = false;
-                                    texture.minFilter = THREE.LinearFilter;
-                                    texture.magFilter = THREE.LinearFilter;
-                                    texture.wrapS = THREE.ClampToEdgeWrapping;
-                                    texture.wrapT = THREE.ClampToEdgeWrapping;
-                                    var mtrl = new THREE.MeshBasicMaterial({map: texture, overdraw: true});
+        });
 
-                                    var geometry = new THREE.PlaneGeometry(0.1, 0.1, 1);
-                                    geometry.computeFaceNormals();
+        textGeo.computeBoundingBox();
+        textGeo.computeVertexNormals();
 
-                                    //pos
-                                    var pos = curve.getPointAt(stops[0]);
-                                    var scale = compute_panel_scale(0);
+        // "fix" side normals by removing z-component of normals for side faces
+        // (this doesn't work well for beveled geometry as then we lose nice curvature around z-axis)
 
-                                    //panel
-                                    var panel = new THREE.Mesh(geometry, mtrl);
-                                    panel.position.x = pos.x;
-                                    panel.position.y = pos.y;
-                                    panel.position.z = pos.z;
-                                    panel.scale.x = scale.x;
-                                    panel.scale.y = scale.y;
-                                    panel.scale.z = scale.z;
-                                    panel.setRotationFromQuaternion(compute_panel_rotation(0));
+        if ( ! bevelEnabled ) {
 
-                                    panels.children.splice(0, 0, panel);
+            var triangleAreaHeuristics = 0.1 * ( height * size );
 
-                                },
-                                // Function called when download progresses
-                                function (xhr) {
-                                    console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-                                },
-                                // Function called when download errors
-                                function (xhr) {
-                                    console.log('An error happened');
-                                }
-                        );
+            for ( var i = 0; i < textGeo.faces.length; i ++ ) {
 
+                var face = textGeo.faces[ i ];
+
+                if ( face.materialIndex == 1 ) {
+
+                    for ( var j = 0; j < face.vertexNormals.length; j ++ ) {
+
+                        face.vertexNormals[ j ].z = 0;
+                        face.vertexNormals[ j ].normalize();
+
+                    }
+
+                    var va = textGeo.vertices[ face.a ];
+                    var vb = textGeo.vertices[ face.b ];
+                    var vc = textGeo.vertices[ face.c ];
+
+                    var s = THREE.GeometryUtils.triangleArea( va, vb, vc );
+
+                    if ( s > triangleAreaHeuristics ) {
+
+                        for ( var j = 0; j < face.vertexNormals.length; j ++ ) {
+
+                            face.vertexNormals[ j ].copy( face.normal );
+
+                        }
 
                     }
 
                 }
 
             }
+
         }
 
-        //add a new panel with image to the queue
-        $("#btnNext").click(function() {
-            handle_new_frame("textures/bus.jpg");
-            return false;
-        });
+        var centerOffset = -0.5 * ( textGeo.boundingBox.max.x - textGeo.boundingBox.min.x );
 
+        textMesh1 = new THREE.Mesh( textGeo, material );
 
-        function toHHMMSS(sec) {
-            var sec_num = parseInt(sec, 10); // don't forget the second param
-            var hours   = Math.floor(sec_num / 3600);
-            var minutes = Math.floor((sec_num - (hours * 3600)) / 60);
-            var seconds = sec_num - (hours * 3600) - (minutes * 60);
-            if (hours   < 10) {hours   = "0"+hours;}
-            if (minutes < 10) {minutes = "0"+minutes;}
-            if (seconds < 10) {seconds = "0"+seconds;}
-            var time    = hours+':'+minutes+':'+seconds;
-            return time;
+        textMesh1.position.x = centerOffset;
+        textMesh1.position.y = hover;
+        textMesh1.position.z = 0;
+
+        textMesh1.rotation.x = 0;
+        textMesh1.rotation.y = Math.PI * 2;
+
+        group.add( textMesh1 );
+
+        if ( mirror ) {
+
+            textMesh2 = new THREE.Mesh( textGeo, material );
+
+            textMesh2.position.x = centerOffset;
+            textMesh2.position.y = -hover;
+            textMesh2.position.z = height;
+
+            textMesh2.rotation.x = Math.PI;
+            textMesh2.rotation.y = Math.PI * 2;
+
+            group.add( textMesh2 );
+
         }
+    }
 
-        // @return {integer} a random int between min and max
-        function getRandomInt(min, max) {
-            return Math.floor(Math.random() * (max - min) + min);
-        }
+    //loads a font
+    function loadFont(fontName, fontWeight) {
 
-        //fpga websocket handler
-        $(function() {
-            var ws_fpga = new ReconnectingWebSocket("ws://xsjaaronn50:9999");
-            ws_fpga.onmessage = function(evt) {
+        var loader = new THREE.FontLoader();
+        loader.load( 'fonts/' + fontName + '_' + fontWeight + '.typeface.js', function ( response ) {
 
-                if(!ws_connect)
-                    return;
+            font = response;
 
-                var d = $.parseJSON(evt.data);
+            refreshText();
+        } );
+    }
 
-                if (!d.data.images)
-                    return;
+    function handle_new_frame(frame_uri) {
+        TWEEN.removeAll();
+        var handled_on_transition_completed = false;
 
-                if (d.data.labels) {
-                    console.log("labels: " + d.data.labels);
+        //var timeline = createjs.Timeline();
+        for(var i=0; i < panels.children.length-1; i++) {
+            var panel = panels.children[i];
+
+            //orientation
+            var qm = new THREE.Quaternion();
+            var q1 = new THREE.Quaternion().copy(panel.quaternion);
+            var q2 = compute_panel_rotation(i + 1);
+
+            var pm = new THREE.Vector3();
+            var p1 = panel.position;
+            var p2 = curve.getPointAt(stops[i + 1]);
+
+            var duration = 0;
+
+            //tween position
+            var tw1 = new TWEEN.Tween(panel.position);
+            tw1.to({ x: p2.x, y: p2.y, z: p2.z }, duration);
+            tw1.onComplete(handleComplete);
+            tw1.start();
+
+            //tween rotation
+            panel.setRotationFromQuaternion(q2);
+
+            //for rotation
+            /*
+            var o = {t : 0};
+            var tw2 = new TWEEN.Tween(o);
+            tw2.to({t: 1}, duration);
+            tw2.onUpdate(function() {
+                //THREE.Quaternion.slerp(q1, q2, qm, o.t);
+                panel.setRotationFromQuaternion(q2);
+            });
+            tw2.start();
+            */
+
+            //tween scale
+            var s2 = compute_panel_scale(i + 1);
+            var tw3 = new TWEEN.Tween(panel.scale);
+            tw3.to({ x: s2.x, y: s2.y, z: s2.z}, duration);
+            tw3.start();
+
+            //on complete
+            function handleComplete() {
+                //Tween complete
+                //console.log("finished moving panel " + i);
+
+                if((i == panels.children.length - 1) && !handled_on_transition_completed) {
+
+                    handled_on_transition_completed = true;
+
+                    //remove last
+                    remove_last();
+
+                    if(frame_uri == undefined)
+                        return false;
+
+                    //load new frame
+                    //var texture = load_frame_as_texture(frame_uri);
+                    //var first = create_panel_textured(curve.getPointAt(stops[0]), scale_side_panel, quat_side_panel, frame_uri);
+
+                    var texloader = new THREE.TextureLoader();
+                    texloader.crossOrigin = '';
+
+                    // load a resource
+                    texloader.load(
+                            // resource URL
+                            frame_uri,
+                            // Function when resource is loaded
+                            function (texture) {
+                                texture.generateMipmaps = false;
+                                texture.minFilter = THREE.LinearFilter;
+                                texture.magFilter = THREE.LinearFilter;
+                                texture.wrapS = THREE.ClampToEdgeWrapping;
+                                texture.wrapT = THREE.ClampToEdgeWrapping;
+                                var mtrl = new THREE.MeshBasicMaterial({map: texture, overdraw: true});
+
+                                //text
+                                //var label = new THREE.TextGeometry("HI Spark");
+
+                                //plane
+                                var geometry = new THREE.PlaneGeometry(0.1, 0.1, 1);
+                                geometry.computeFaceNormals();
+
+                                //pos
+                                var pos = curve.getPointAt(stops[0]);
+                                var scale = compute_panel_scale(0);
+
+                                //panel
+                                var panel = new THREE.Mesh(geometry, mtrl);
+                                panel.position.x = pos.x;
+                                panel.position.y = pos.y;
+                                panel.position.z = pos.z;
+                                panel.scale.x = scale.x;
+                                panel.scale.y = scale.y;
+                                panel.scale.z = scale.z;
+                                panel.setRotationFromQuaternion(compute_panel_rotation(0));
+
+                                panels.children.splice(0, 0, panel);
+
+                            },
+                            // Function called when download progresses
+                            function (xhr) {
+                                console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                            },
+                            // Function called when download errors
+                            function (xhr) {
+                                console.log('An error happened');
+                            }
+                    );
+
+
                 }
 
-                if( d.data.images && d.data.labels) {
-                    console.log("current image: " + d.data.images[0]);
-                    //now adding frames work
-                    handle_new_frame(d.data.images[0]);
-                }
             }
-            ws_fpga.onopen = function(evt) {
-                $('#fpga_conn_status').html('<b>Connected to Xilinx Virtex UltraScale FPGA</b>');
-            }
-            ws_fpga.onerror = function(evt) {
-                $('#fpga_conn_status').html('<b>Error in connecting to native app</b>');
-            }
-            ws_fpga.onclose = function(evt) {
-                $('#fpga_conn_status').html('<b>Closed connection</b>');
-            }
-        });
-
-        // shim layer with setTimeout fallback
-        window.requestAnimFrame = (function(){
-            return  window.requestAnimationFrame ||
-                    window.webkitRequestAnimationFrame ||
-                    window.mozRequestAnimationFrame ||
-                    function(callback) {
-                        window.setTimeout(callback, 1000 / 60);
-                    };
-        })();
-
-        function animate() {
-            render();
-
-            requestAnimFrame(animate);
-
-            stats.update();
-
-            TWEEN.update();
 
         }
+    }
 
-        function render() {
-            renderer.render(scene, camera);
+    //add a new panel with image to the queue
+    $("#btnNext").click(function() {
+        handle_new_frame("textures/bus.jpg");
+        return false;
+    });
+
+
+    function toHHMMSS(sec) {
+        var sec_num = parseInt(sec, 10); // don't forget the second param
+        var hours   = Math.floor(sec_num / 3600);
+        var minutes = Math.floor((sec_num - (hours * 3600)) / 60);
+        var seconds = sec_num - (hours * 3600) - (minutes * 60);
+        if (hours   < 10) {hours   = "0"+hours;}
+        if (minutes < 10) {minutes = "0"+minutes;}
+        if (seconds < 10) {seconds = "0"+seconds;}
+        var time    = hours+':'+minutes+':'+seconds;
+        return time;
+    }
+
+    // @return {integer} a random int between min and max
+    function getRandomInt(min, max) {
+        return Math.floor(Math.random() * (max - min) + min);
+    }
+
+    //fpga websocket handler
+    $(function() {
+        var ws_fpga = new ReconnectingWebSocket("ws://xsjaaronn50:9999");
+        ws_fpga.onmessage = function(evt) {
+
+            if(!ws_connect)
+                return;
+
+            var d = $.parseJSON(evt.data);
+
+            if (!d.data.images)
+                return;
+
+            if (d.data.labels) {
+                console.log("labels: " + d.data.labels);
+            }
+
+            //if( d.data.images && d.data.labels)
+            if( d.data.images && !d.data.labels && !d.data.worker) {
+                console.log("current image: " + d.data.images[0]);
+                //now adding frames work
+                handle_new_frame(d.data.images[0]);
+            }
         }
-
-        function onWindowResize() {
-            console.log("I sensed the window is resized!");
-            camera.aspect = window.innerWidth/window.innerHeight;
-            camera.updateProjectionMatrix();
-
-            renderer.setSize(window.innerWidth, window.innerHeight);
+        ws_fpga.onopen = function(evt) {
+            $('#fpga_conn_status').html('<b>Connected to Xilinx Virtex UltraScale FPGA</b>');
         }
+        ws_fpga.onerror = function(evt) {
+            $('#fpga_conn_status').html('<b>Error in connecting to native app</b>');
+        }
+        ws_fpga.onclose = function(evt) {
+            $('#fpga_conn_status').html('<b>Closed connection</b>');
+        }
+    });
+
+    // shim layer with setTimeout fallback
+    window.requestAnimFrame = (function(){
+        return  window.requestAnimationFrame ||
+                window.webkitRequestAnimationFrame ||
+                window.mozRequestAnimationFrame ||
+                function(callback) {
+                    window.setTimeout(callback, 1000 / 60);
+                };
+    })();
+
+    function animate() {
+        render();
+
+        requestAnimFrame(animate);
+
+        stats.update();
+
+        TWEEN.update();
+
+    }
+
+    function render() {
+        renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+        console.log("I sensed the window is resized!");
+        camera.aspect = window.innerWidth/window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
 
-        animate();
-    </script>
+    animate();
+</script>
 
 </body>
 </html>

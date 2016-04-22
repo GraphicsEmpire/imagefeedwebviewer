@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image processing feed</title>
+
+    <script type="text/javascript" src="js/three.min.js"></script>
+    <script type="text/javascript" src="js/Tween.js"></script>
+    <script type="text/javascript" src="js/stats.min.js"></script>
+    <script type="text/javascript" src="classes/carousel.js"></script>
+
+
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/colorbrewer.css">
+
+    <script type="text/javascript" src="js/jquery.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/colorbrewer.js"></script>
+
+    <script type="text/javascript" src="js/reconnecting-websocket.min.js"></script>
+
+    <style>
+        body { margin: 0; }
+        canvas { width: 100%; height: 100% }
+    </style>
+
+</head>
+
+<body>
+<a href="" id="btnNext">next</a>
+
+<script>
+    var stats = new Stats();
+    stats.showPanel(0); //0: fps
+    //stats.showPanel(1); //1: ms
+    //stats.showPanel(2); //2: mb
+    //stats.showPanel(3); //3+: custom
+    document.body.appendChild(stats.dom );
+
+    //create a carousel
+    var carousel = new Carousel(window.innerWidth, window.innerHeight);
+    carousel.init_panels();
+
+    //scene setup
+    window.addEventListener('resize', onWindowResize, false);
+
+    render();
+
+    //global vars
+    var ws_connect = true;
+    var nx_samples = 0;
+
+    //fpga websocket handler
+    $(function() {
+        var ws_fpga = new ReconnectingWebSocket("ws://xsjaaronn50:9999");
+        ws_fpga.onmessage = function(evt) {
+
+            if(!ws_connect)
+                return;
+
+            var d = $.parseJSON(evt.data);
+
+            if (!d.data.images)
+                return;
+
+            if( d.data.images && !d.data.labels && !d.data.worker) {
+                //console.log("current image: " + d.data.images[0]);
+                //d.data.labels
+                //now adding frames work
+                nx_samples++;
+                carousel.add_new_panel(d.data.images[0]);
+            }
+        }
+        ws_fpga.onopen = function(evt) {
+            $('#fpga_conn_status').html('<b>Connected to Xilinx Virtex UltraScale FPGA</b>');
+        }
+        ws_fpga.onerror = function(evt) {
+            $('#fpga_conn_status').html('<b>Error in connecting to native app</b>');
+        }
+        ws_fpga.onclose = function(evt) {
+            $('#fpga_conn_status').html('<b>Closed connection</b>');
+        }
+    });
+
+
+    // shim layer with setTimeout fallback
+    window.requestAnimFrame = (function(){
+        return  window.requestAnimationFrame ||
+                window.webkitRequestAnimationFrame ||
+                window.mozRequestAnimationFrame ||
+                function(callback) {
+                    window.setTimeout(callback, 1000 / 60);
+                };
+    })();
+
+    /*
+    function animate() {
+        requestAnimFrame(animate);
+
+        render();
+
+        stats.update();
+    }
+    */
+
+    function render() {
+        carousel.render();
+        stats.update();
+    }
+
+    function onWindowResize() {
+        carousel.resize(window.innerWidth, window.innerHeight);
+    }
+
+    //add a new panel with image to the queue
+    $("#btnNext").click(function() {
+        carousel.add_new_panel("textures/bus.jpg");
+        return false;
+    });
+
+    //animate();
+</script>
+</body>
+</html>
